@@ -142,6 +142,14 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="entry.cpp" />
+    <ClCompile Include="io\io.cpp" />
+    <ClCompile Include="io\TcpServer.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="base\automtx.h" />
+    <ClInclude Include="io\io.h" />
+    <ClInclude Include="io\TcpServer.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
