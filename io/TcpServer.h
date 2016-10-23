@@ -12,6 +12,12 @@ namespace io
     class TcpServer;
     class TcpServerConnection;
 
+#ifdef _WIN32
+    typedef unsigned int fd_t;
+#else
+    typedef int fd_t;
+#endif
+
     struct _list_inf
     {
     public:
@@ -62,6 +68,7 @@ namespace io
 
     protected:
         void* malloc_int(size_t nBytes);
+        _list_inf getListenerInfo(int fd);
 
     public:
         TcpServer();
@@ -88,6 +95,11 @@ namespace io
         friend class io::TcpServer;
     private:
         struct _portinf _portinfo;
+        struct _list_inf _listinfo;
+
+        TcpServer* _parentServer;
+        bool _reduceCliCt;
+
         fd_t _fd;
         void* _address;
 

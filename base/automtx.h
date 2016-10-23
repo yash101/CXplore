@@ -3,6 +3,8 @@
 #define _AUTOMTX_H __FILE__
 namespace base
 {
+    const static int UNLOCKED = 1;
+    const static int LOCKED = 0;
     template<class T>
     class AutoMutex
     {
@@ -23,6 +25,20 @@ namespace base
             if(_isLocked)
                 _mtx->unlock();
             _isLocked = false;
+        }
+
+        AutoMutex(T* mtx, int locked) :
+            _isLocked(false),
+            _mtx(mtx)
+        {
+            if(locked) lock();
+        }
+
+        AutoMutex(T& mtx, int locked) :
+            _isLocked(false),
+            _mtx(&mtx)
+        {
+            if(locked) lock();
         }
 
         AutoMutex(T* mtx) :
