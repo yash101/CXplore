@@ -24,6 +24,15 @@
     <ClCompile Include="io\TcpServer.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="io\HttpServer.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="io\HttpFlags.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="util\stringproc.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="io\io.h">
@@ -33,6 +42,12 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="base\automtx.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="io\HttpServer.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="util\stringproc.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

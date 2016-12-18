@@ -143,13 +143,18 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="entry.cpp" />
+    <ClCompile Include="io\HttpFlags.cpp" />
+    <ClCompile Include="io\HttpServer.cpp" />
     <ClCompile Include="io\io.cpp" />
     <ClCompile Include="io\TcpServer.cpp" />
+    <ClCompile Include="util\stringproc.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="base\automtx.h" />
+    <ClInclude Include="io\HttpServer.h" />
     <ClInclude Include="io\io.h" />
     <ClInclude Include="io\TcpServer.h" />
+    <ClInclude Include="util\stringproc.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

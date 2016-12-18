@@ -8,6 +8,12 @@
 
 namespace io
 {
+#ifdef _WIN32
+    typedef int _sa_ret;
+#else
+    typedef ssize_t _sa_ret;
+#endif
+
     struct _list_inf;
     class TcpServer;
     class TcpServerConnection;
@@ -63,6 +69,9 @@ namespace io
         void* _nMaxConnCliMut;
         void* _timeoutMut;
 
+        //Flag that is set if we are shutting down the server
+        bool _shutServer;
+
         //GC
         void cleanup_malloc();
 
@@ -103,14 +112,43 @@ namespace io
         fd_t _fd;
         void* _address;
 
+    protected:
+        _sa_ret recv_int(void* buf, size_t len, int flags);
+        _sa_ret send_int(void* buf, size_t len, int flags);
+
     public:
+        static const int FILL_BUFFER = 0;
         TcpServerConnection();
         ~TcpServerConnection();
+
+        _sa_ret readline(std::string& buffer, char end);
+        _sa_ret readline(char* buffer, size_t buffer_len, char end);
+
+        _sa_ret read(char& ch);
+        _sa_ret read(std::string& str, size_t maxlen);
+        _sa_ret read(void* buffer, size_t buffer_len);
+
+        _sa_ret peek(char& ch);
+        _sa_ret peek(std::string& str, size_t maxlen);
+        _sa_ret peek(void* buffer, size_t buffer_len);
+
+        _sa_ret write(char ch);
+        _sa_ret write(std::string& data);
+        _sa_ret write(const char* str);
+        _sa_ret write(void* data, size_t length);
+
         inline struct _portinf getPortinfo()
         {
             return _portinfo;
         }
+
+        inline fd_t getSocketDescriptor()
+        {
+            return _fd;
+        }
     };
+
+    bool sockError(_sa_ret fd);
 }
 
 #endif
