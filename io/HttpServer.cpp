@@ -3,6 +3,8 @@
 #include <stddef.h>
 #include <string.h>
 #include <map>
+#include <vector>
+#include <algorithm>
 
 static bool operator==(std::string a, std::string b)
 {
@@ -75,17 +77,79 @@ void io::http::capitalize(std::string& str)
 //Only 6 elements is a very fast lookup with O(log(n))
 static std::map<std::string, uint32_t> _httpMethodResolve;
 static bool _httpMethodResolverInitialized = false;
-static void _initializeHttpMethodResolver()
+void io::initializeHttpMethodResolver()
 {
+    //Check if this function has already been run
+    //This function isn't MT-safe!
     if(_httpMethodResolverInitialized) return;
     _httpMethodResolverInitialized = true;
+    //Reduce code redundance :)
     using namespace io::flag;
     _httpMethodResolve["GET"] = GET;
+    _httpMethodResolve["HEAD"] = HEAD;
     _httpMethodResolve["POST"] = POST;
     _httpMethodResolve["PUT"] = PUT;
     _httpMethodResolve["DELETE"] = DELETE;
     _httpMethodResolve["OPTIONS"] = OPTIONS;
     _httpMethodResolve["CONNECT"] = CONNECT;
+}
+
+//Allows fast lookup for status codes
+static std::map<unsigned short int, std::string> _httpStatusCodeResolve;
+static bool _httpStatusCodeResolverInitialized = false;
+void io::initializeHttpStatusCodeResolver()
+{
+    //Only once. This is not MT-safe 
+    if(_httpStatusCodeResolverInitialized) return;
+    _httpStatusCodeResolverInitialized = true;
+
+    _httpStatusCodeResolve[100] = "Continue";
+    _httpStatusCodeResolve[101] = "Switching Protocols";
+    _httpStatusCodeResolve[200] = "OK";
+    _httpStatusCodeResolve[201] = "Created";
+    _httpStatusCodeResolve[202] = "Accepted";
+    _httpStatusCodeResolve[203] = "Non-Authoritative Information";
+    _httpStatusCodeResolve[204] = "No Content";
+    _httpStatusCodeResolve[205] = "Reset Content";
+    _httpStatusCodeResolve[206] = "Partial Content";
+    _httpStatusCodeResolve[300] = "Multiple Choices";
+    _httpStatusCodeResolve[301] = "Moved Permanently";
+    _httpStatusCodeResolve[302] = "Found";
+    _httpStatusCodeResolve[303] = "See Other";
+    _httpStatusCodeResolve[304] = "Not Modified";
+    _httpStatusCodeResolve[305] = "Use Proxy";
+    _httpStatusCodeResolve[306] = "[Unused]";
+    _httpStatusCodeResolve[307] = "Temporary Redirect";
+    _httpStatusCodeResolve[400] = "Bad Request";
+    _httpStatusCodeResolve[401] = "Unauthorized";
+    _httpStatusCodeResolve[402] = "Payment Required";
+    _httpStatusCodeResolve[403] = "Forbidden";
+    _httpStatusCodeResolve[404] = "Not Found";
+    _httpStatusCodeResolve[405] = "Method Not Allowed";
+    _httpStatusCodeResolve[406] = "Not Acceptable";
+    _httpStatusCodeResolve[407] = "Proxy Authentication Required";
+    _httpStatusCodeResolve[408] = "Request Timeout";
+    _httpStatusCodeResolve[409] = "Conflict";
+    _httpStatusCodeResolve[410] = "Gone";
+    _httpStatusCodeResolve[411] = "Length Required";
+    _httpStatusCodeResolve[412] = "Precondition Failed";
+    _httpStatusCodeResolve[413] = "Request Entity Too Large";
+    _httpStatusCodeResolve[414] = "Request-URI Too Long";
+    _httpStatusCodeResolve[415] = "Unsupported Media Type";
+    _httpStatusCodeResolve[416] = "Requested Range No Satisfiable";
+    _httpStatusCodeResolve[417] = "Expectation Failed";
+    _httpStatusCodeResolve[500] = "Internal Server Error";
+    _httpStatusCodeResolve[501] = "Not Implemented";
+    _httpStatusCodeResolve[502] = "Bad Gateway";
+    _httpStatusCodeResolve[502] = "Service Unavailable";
+    _httpStatusCodeResolve[502] = "Gateway Timeout";
+    _httpStatusCodeResolve[502] = "HTTP Version Not Supported";
+}
+
+void io::initializeHttpResolvers()
+{
+    io::initializeHttpMethodResolver();
+    io::initializeHttpStatusCodeResolver();
 }
 
 //Helps with memory management temporarily
@@ -165,6 +229,9 @@ void io::HttpServer::initializeVariables()
     _maxHeaderFieldLength = 1022;
     //16 MB is a lot of RAM :/
     _maxPostSize = 16 * 1024 * 1024;
+
+    //Initialize the HTTP Method Resolver
+    io::initializeHttpResolvers();
 }
 
 //Sets a io::TcpServer pointer, returning the old one
@@ -200,10 +267,13 @@ io::HttpSession::HttpSession() :
     _reqct(0),
     _contReq(false),
     _flags(0),
+    _requestPending(false),
     _httpServer(nullptr),
     _tcpServer(nullptr),
     _connection(nullptr),
-    _wssession(nullptr)
+    _wssession(nullptr),
+    status_code(200),
+    status_string("OK")
 {}
 
 //Destroys the object and frees any unfreed resources
@@ -224,9 +294,23 @@ bool io::HttpSession::isFlagSet(uint32_t flag)
 //Returns true if the object has a valid HTTP request
 bool io::HttpSession::nextRequest()
 {
+    if(_requestPending)
+        sendResponse();
     //Check if we are supposed to have another request
     if(_reqct != 0 && !_contReq)
         return false;
+
+    //Reset variables
+    _contReq = false;
+    path = "";
+    trimmedPath = "";
+    _flags = 0;
+    get_queries.clear();
+    post_queries.clear();
+    incoming_headers.clear();
+    incoming_cookies.clear();
+    status_code = 200;
+    status_string = "OK";
 
     //Increment number of requests we've handled
     _reqct++;
@@ -239,10 +323,14 @@ bool io::HttpSession::nextRequest()
     if(!isFlagSet(io::flag::WEBSOCKET))
     {
         if(!parsePost()) return false;
+        _requestPending = true;
     }
     else
     {
     }
+
+    if(isFlagSet(io::flag::KEEPALIVE))
+        _contReq = true;
 
     //Things worked. Great!
     return true;
@@ -297,7 +385,6 @@ bool io::HttpSession::parseGetLine()
     //Resolve the method used
     //Initialize the resolver (if not already)
     //First use is non-thread safe. Thereafter, read only
-    _initializeHttpMethodResolver();
     auto retf = _httpMethodResolve.find(sp.getPtr());
     //Check if it doesn't exist
     if(retf == _httpMethodResolve.end())
@@ -462,6 +549,7 @@ bool io::HttpSession::parseHeaders()
     return true;
 }
 
+//Processes and saves a cookie
 bool io::HttpSession::processCookie(char* cookie)
 {
     char* nck = cookie;
@@ -543,7 +631,47 @@ bool io::HttpSession::validateHeaders()
     return true;
 }
 
+//Parses the POST payload of the request
 bool io::HttpSession::parsePost()
 {
+    //Needs implementation :/
+    return true;
+}
+
+//Returns the response to the client (browser)
+bool io::HttpSession::sendResponse()
+{
+    //Check if we currently are handling a request
+    //If we are handling a websocket request, this should return as it's useless
+    if(!_requestPending || isFlagSet(io::flag::WEBSOCKET)) return false;
+    _requestPending = false; //Reset
+
+    //Significantly shortens code. Trying to save my fingers :)
+#define CHKCON(x) if(io::sockError(x)) return false
+
+    //Send back the first line
+    //Send the HTTP Version (e.g. "HTTP/1.1 "
+    auto ret = _connection->write("HTTP/");
+    CHKCON(ret);
+    ret = _connection->write(util::toString(_httpMajor)
+                             + '.'
+                             + util::toString(_httpMinor)
+                             + ' '
+    );
+    CHKCON(ret);
+
+    //Make sure status code is set
+    if(status_code == 0) status_code = 200;
+
+    //Write the status code (e.g. 200)
+    ret = _connection->write(util::toString(status_code));
+    CHKCON(ret);
+
+    //Write the status message
+    ret = _connection->write(util::toString(status_string));
+    CHKCON(ret);
+
+#undef CHKCON
+
     return true;
 }

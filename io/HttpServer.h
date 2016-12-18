@@ -10,6 +10,7 @@ namespace io
     namespace flag
     {
         extern uint32_t GET;
+        extern uint32_t HEAD;
         extern uint32_t POST;
         extern uint32_t PUT;
         extern uint32_t DELETE;
@@ -106,6 +107,7 @@ namespace io
 
         size_t _reqct;
         bool _contReq;
+        bool _requestPending;
 
         int _flags;
         unsigned char _httpMajor;
@@ -122,15 +124,20 @@ namespace io
         std::string trimmedPath;
 
     public:
+        //Maps containing data pulled from the request
         std::unordered_map<std::string, std::string> get_queries;
         std::unordered_map<std::string, DataType> post_queries;
         std::unordered_map<std::string, std::string> incoming_headers;
         std::unordered_map<std::string, std::string> incoming_cookies;
 
+        unsigned short int status_code;
+        std::string status_string;
+
         HttpSession();
         ~HttpSession();
 
         bool nextRequest();
+        bool sendResponse();
         bool isFlagSet(uint32_t flag);
     };
 
@@ -149,6 +156,10 @@ namespace io
         void capitalize(char* str);
         void capitalize(std::string& str);
     }
+
+    void initializeHttpMethodResolver();
+    void initializeHttpStatusCodeResolver();
+    void initializeHttpResolvers();
 }
 
 #endif
