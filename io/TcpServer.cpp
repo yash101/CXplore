@@ -763,6 +763,7 @@ io::_sa_ret io::TcpServerConnection::write(char ch)
         }
         return ret;
     } while(!SOCK_ERR(ret));
+    return ret;
 }
 
 io::_sa_ret io::TcpServerConnection::write(std::string& data)

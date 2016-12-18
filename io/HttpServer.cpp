@@ -38,6 +38,21 @@ void io::http::capitalize(char* string)
     }
 }
 
+void io::Cookie::clearFlag(uint32_t flg)
+{
+    flags &= ~flg;
+}
+
+void io::Cookie::setFlag(uint32_t flg)
+{
+    flags |= flg;
+}
+
+bool io::Cookie::getFlag(uint32_t flg)
+{
+    return (flags & flg) == flg;
+}
+
 void io::http::capitalize(std::string& str)
 {
     //Iterate through the entire string
@@ -306,7 +321,7 @@ bool io::HttpSession::parseGetLine()
     if(!strncmp(protoSt, "HTTP/", strlen("HTTP/")))
     {
         //Remove this comment and warning when fixed. Should be added to any bug trackers as an uncertain case
-#pragma warning("Please clean up this code. I haven't taken the time to ensure all pointer reads are bounds-checked in every case.");
+#pragma message ("Please clean up this code. I haven't taken the time to ensure all pointer reads are bounds-checked in every case")
         //We have, say, "1.0" or "1.1"
         //Find the dot
         char* pos = strchr(protoSt, '.');

@@ -6,6 +6,7 @@
 
 namespace io
 {
+    //Various flags used
     namespace flag
     {
         extern uint32_t GET;
@@ -24,18 +25,35 @@ namespace io
         extern uint32_t COOKIE_SAMESITE;
     }
 
+    //Classes defined in this header
     class HttpServer;
     class HttpSession;
     class WsSession;
     class DataType;
     class HeaderField;
+    class Cookie;
 
+    //Holds either string data or file path
     class DataType
     {
         std::string data;
         std::string filepath;
     };
 
+    //Holds a cookie
+    class Cookie
+    {
+        uint32_t flags;
+        void clearFlag(uint32_t flg);
+        void setFlag(uint32_t flg);
+        bool getFlag(uint32_t flg);
+        
+        std::string name;
+        std::string value;
+        std::string expires;
+    };
+
+    //Holds an HTTP header
     class HeaderField
     {
         std::string name;
