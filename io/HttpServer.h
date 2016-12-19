@@ -37,13 +37,16 @@ namespace io
     //Holds either string data or file path
     class DataType
     {
+    public: 
         std::string data;
         std::string filepath;
+        std::string mime_type;
     };
 
     //Holds a cookie
     class Cookie
     {
+    public:
         uint32_t flags;
         void clearFlag(uint32_t flg);
         void setFlag(uint32_t flg);
@@ -57,6 +60,7 @@ namespace io
     //Holds an HTTP header
     class HeaderField
     {
+    public:
         std::string name;
         std::string content;
     };
@@ -119,9 +123,8 @@ namespace io
         bool processCookie(char* cookie);
         bool validateHeaders();
         bool parsePost();
-
-        std::string path;
-        std::string trimmedPath;
+        bool checkHeaders();
+        bool _sendResponse();
 
     public:
         //Maps containing data pulled from the request
@@ -129,9 +132,16 @@ namespace io
         std::unordered_map<std::string, DataType> post_queries;
         std::unordered_map<std::string, std::string> incoming_headers;
         std::unordered_map<std::string, std::string> incoming_cookies;
+        std::unordered_map<std::string, std::string> outgoing_headers;
+        std::unordered_map<std::string, io::Cookie> outgoing_cookies;
+
+        //Paths from the client
+        std::string fullPath;
+        std::string path;
 
         unsigned short int status_code;
         std::string status_string;
+        io::DataType response;
 
         HttpSession();
         ~HttpSession();
@@ -155,6 +165,7 @@ namespace io
     {
         void capitalize(char* str);
         void capitalize(std::string& str);
+        std::string getDate();
     }
 
     void initializeHttpMethodResolver();

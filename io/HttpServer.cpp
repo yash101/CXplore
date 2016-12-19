@@ -2,9 +2,9 @@
 #include "../util/stringproc.h"
 #include <stddef.h>
 #include <string.h>
+#include <time.h>
 #include <map>
-#include <vector>
-#include <algorithm>
+#include <fstream>
 
 static bool operator==(std::string a, std::string b)
 {
@@ -38,6 +38,21 @@ void io::http::capitalize(char* string)
         //Increment pointer to next char
         str++;
     }
+}
+
+std::string io::http::getDate()
+{
+    time_t rt;
+    struct tm timeinfo;
+    char buffer[80];
+    time(&rt);
+    //No error checking. We're using the stack so errors are basically impossible
+    gmtime_s(&timeinfo, &rt);
+
+    //Stringify the time
+    strftime(buffer, sizeof(buffer), "%a, %e %h %Y %R:%S GMT", &timeinfo);
+    //Return the time as a string
+    return std::string(buffer);
 }
 
 void io::Cookie::clearFlag(uint32_t flg)
@@ -272,8 +287,7 @@ io::HttpSession::HttpSession() :
     _tcpServer(nullptr),
     _connection(nullptr),
     _wssession(nullptr),
-    status_code(200),
-    status_string("OK")
+    status_code(200)
 {}
 
 //Destroys the object and frees any unfreed resources
@@ -302,15 +316,18 @@ bool io::HttpSession::nextRequest()
 
     //Reset variables
     _contReq = false;
+    fullPath = "";
     path = "";
-    trimmedPath = "";
     _flags = 0;
     get_queries.clear();
     post_queries.clear();
     incoming_headers.clear();
     incoming_cookies.clear();
     status_code = 200;
-    status_string = "OK";
+    status_string.clear();
+    response.data.clear();
+    response.filepath.clear();
+    response.mime_type.clear();
 
     //Increment number of requests we've handled
     _reqct++;
@@ -396,7 +413,7 @@ bool io::HttpSession::parseGetLine()
     _flags |= retf->second;
 
     //Set the path by copying from the GET line
-    path = std::string(pathSt, protoSt - pathSt);
+    fullPath = std::string(pathSt, protoSt - pathSt);
 
     //Process the path for it's GET parts
     if(!processPath(pathSt, protoSt - sizeof(char)))
@@ -438,7 +455,7 @@ bool io::HttpSession::processPath(char* start, char* end)
     }
 
     //trimmedPath needs to be set from {beg}=>{start}
-    trimmedPath = std::string(beg, start - beg);
+    path = std::string(beg, start - beg);
 
     //Check if we had an EOF or the question mark is the last character
     if(*start == '\0' || (*start == '?' && (*(start + 1)) == '\0'))
@@ -631,6 +648,29 @@ bool io::HttpSession::validateHeaders()
     return true;
 }
 
+class FileCloser
+{
+public:
+    FILE* f;
+    inline FileCloser() : f(nullptr)
+    {}
+    inline FileCloser(FILE* fl) : f(fl)
+    {
+        if(!fl) f = nullptr;
+    }
+    ~FileCloser()
+    {
+        if(f)
+        {
+            fclose(f);
+        }
+    }
+    void untrack()
+    {
+        f = nullptr;
+    }
+};
+
 //Parses the POST payload of the request
 bool io::HttpSession::parsePost()
 {
@@ -639,7 +679,7 @@ bool io::HttpSession::parsePost()
 }
 
 //Returns the response to the client (browser)
-bool io::HttpSession::sendResponse()
+bool io::HttpSession::_sendResponse()
 {
     //Check if we currently are handling a request
     //If we are handling a websocket request, this should return as it's useless
@@ -667,11 +707,167 @@ bool io::HttpSession::sendResponse()
     ret = _connection->write(util::toString(status_code));
     CHKCON(ret);
 
+    //Make sure there is a status string assigned
+    if(status_string.empty())
+    {
+        status_string = _httpStatusCodeResolve[status_code];
+        if(status_string.empty())
+            status_string = "N/A";
+    }
     //Write the status message
-    ret = _connection->write(util::toString(status_string));
+    ret = _connection->write(util::toString(status_string) + "\r\n");
     CHKCON(ret);
+
+    //Write the headers
+    if(!checkHeaders()) return false;
+    for(decltype( outgoing_headers )::const_iterator it = outgoing_headers.begin();
+        it != outgoing_headers.end();
+        ++it)
+    {
+        //Copy the key before capitalizing it
+        std::string key = it->first;
+        io::http::capitalize(key);
+        //Send the header
+        ret = _connection->write(key + ": " + it->second + "\r\n");
+        CHKCON(ret);
+    }
+
+    //Write the cookies
+    for(decltype( outgoing_cookies )::iterator it = outgoing_cookies.begin();
+        it != outgoing_cookies.end();
+        ++it)
+    {
+        //The cookie (name + value)
+        std::string w = "Set-Cookie: "
+            + it->second.name + "="
+            + it->second.value;
+
+        //Expiry date (so the browser or app doesn't get sick :))
+        if(it->second.getFlag(io::flag::COOKIE_EXPIRES))
+            w += "; Expires=" + it->second.expires;
+
+        //If the cookie is for HTTP Only transactions
+        if(it->second.getFlag(io::flag::COOKIE_HTTPONLY))
+            w += "; HttpOnly";
+
+        //If the cookie is for secure (HTTPS) only transactions
+        if(it->second.getFlag(io::flag::COOKIE_SECURE))
+            w += "; Secure";
+
+        //SameSite cookies (to prevent CSRF)
+        if(it->second.getFlag(io::flag::COOKIE_SAMESITE))
+            w += "; SameSite";
+
+        //Newline
+        w += "\r\n";
+
+        //Send the cookie
+        _connection->write(w);
+        CHKCON(ret);
+    }
+
+    _connection->write((char*) "\r\n");
+
+    //Write the response
+    if(!response.data.empty())
+    {
+        _connection->write(response.data);
+    }
+    else if(!response.filepath.empty() && !outgoing_headers["content-length"].empty())
+    {
+        //Open the file
+#ifdef _WIN32
+        FILE* f;
+        errno_t ret = fopen_s(&f, response.filepath.c_str(), "r");
+#else
+        FILE* f = fopen(response.filepath.c_str(), "r");
+        //RAII to ensure file is closed
+#endif
+        FileCloser closer(f);
+        //Check if file is open
+        if(f)
+        {
+            //Seek to the end of the file
+            if(fseek(f, 0, SEEK_END) < 0) return false;
+            //Record the length
+            long len = ftell(f);
+            if(len < 0) return false;
+            //Seek to the beginning of the file
+            if(fseek(f, 0, SEEK_SET) < 0) return false;
+            //Send the file
+            _connection->sendfile(f, len);
+        }
+        else return false;
+    }
 
 #undef CHKCON
 
+    return true;
+}
+
+//Checks if all necessary headers are there
+bool io::HttpSession::checkHeaders()
+{
+    //Check if we are supposed to have a response
+    if(status_code != 204)
+    {
+        if(!response.data.empty())
+        {
+            outgoing_headers["content-length"] = util::toString(response.data.size());
+        }
+        else if(!response.filepath.empty())
+        {
+            //Get the length of the file
+            std::ifstream stream(response.filepath, std::ios::ate | std::ifstream::binary);
+            //Check if the file is open
+            if(stream.is_open())
+            {
+                //Set the length
+                outgoing_headers["content-length"] = util::toString(stream.tellg());
+            }
+            //Close the file (just to make sure)
+            stream.close();
+        }
+
+        //No content :/
+        if(outgoing_headers["content-length"].empty())
+            outgoing_headers["content-length"] = "0";
+
+        //Check if there is a server header
+        if(response.mime_type.empty())
+            response.mime_type = "text/plain";
+        outgoing_headers["content-type"] = response.mime_type;
+    }
+
+    //Set the server header field (if not set)
+    if(outgoing_headers["server"].empty())
+        outgoing_headers["server"] = "Integrated Applications Web Server";
+
+    //Set the date
+    if(outgoing_headers["date"].empty())
+        outgoing_headers["date"] = http::getDate();
+
+    //Set keepalive
+    if(isFlagSet(io::flag::KEEPALIVE) && outgoing_headers["connection"].empty())
+        outgoing_headers["connection"] = "keep-alive";
+
+    return true;
+}
+
+bool io::HttpSession::sendResponse()
+{
+    //Send the response
+    bool ret = _sendResponse();
+
+    //If it fails
+    if(!ret)
+    {
+        _requestPending = false;
+        _contReq = false;
+        _flags &= ~io::flag::KEEPALIVE;
+        return false;
+    }
+
+    //Success!
     return true;
 }

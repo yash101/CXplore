@@ -137,6 +137,8 @@ namespace io
         _sa_ret write(const char* str);
         _sa_ret write(void* data, size_t length);
 
+        _sa_ret sendfile(FILE* in, size_t length);
+
         inline struct _portinf getPortinfo()
         {
             return _portinfo;

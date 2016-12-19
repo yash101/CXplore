@@ -20,6 +20,9 @@ int main(int argc, char** argv)
         io::HttpSession* sess = hsrv();
         while(sess->nextRequest())
         {
+            sess->response.data = "Hello World!";
+            sess->response.mime_type = "text/html";
+            sess->sendResponse();
         }
         delete sess;
     }

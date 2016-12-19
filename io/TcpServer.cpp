@@ -26,6 +26,7 @@
 #define SOCK_ERR(x)(x < 0)
 #define SOCK_GOOD(x)(x >= 0)
 #define BAD_SOCKET (-1)
+#define SOCKET_ERROR -1
 #endif
 
 #ifndef TCPSERVER_SELECTSEC
@@ -812,4 +813,44 @@ io::_sa_ret io::TcpServerConnection::write(void* data, size_t len)
         }
         return ret;
     }
+}
+
+io::_sa_ret io::TcpServerConnection::sendfile(FILE* fd, size_t write_len)
+{
+#define DISABLE_SENDFILE_LINUX
+
+#if defined(__linux__) && !defined(DISABLE_SENDFILE_LINUX)
+#error "SENDFILE LOGIC NEEDS TO BE WRITTEN!!!"
+#else
+
+#ifndef SENDFILE_CHUNKING_SIZE
+#define SENDFILE_CHUNKING_SIZE 4096
+#endif
+
+    if(!fd) return SOCKET_ERROR;
+
+    char* chunk = new char[4096];
+    _autodest<char> dest(chunk);
+
+    size_t npartchunks = write_len / SENDFILE_CHUNKING_SIZE;
+
+    for(size_t i = 0; i < npartchunks; i++)
+    {
+        //Read the data
+        size_t ret = fread(chunk, sizeof(char), SENDFILE_CHUNKING_SIZE, fd);
+        if(ret < SENDFILE_CHUNKING_SIZE) return i * SENDFILE_CHUNKING_SIZE + SOCKET_ERROR;
+        //Send the data
+        io::_sa_ret ret2 = write((void*) chunk, sizeof(char) * SENDFILE_CHUNKING_SIZE);
+        if(SOCK_ERR(ret2))
+            return ret2;
+    }
+    size_t ret = fread(chunk, sizeof(char), write_len % SENDFILE_CHUNKING_SIZE, fd);
+    if(ret < write_len % SENDFILE_CHUNKING_SIZE)
+        return npartchunks * SENDFILE_CHUNKING_SIZE + ret;
+    io::_sa_ret ret2 = write((void*) chunk, sizeof(char) * ret);
+    if(SOCK_ERR(ret2))
+        return ret2;
+
+    return ( io::_sa_ret ) write_len;
+#endif
 }
